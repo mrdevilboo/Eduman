@@ -20,7 +20,7 @@ def load_image_base64(path):
     except Exception:
         return None
 
-ICON_PATH = "Eduman/assets/home_background.png"
+ICON_PATH = "Eduman/assets/icon.png"
 HOME_BG = "Eduman/assets/home_background.png"
 
 icon_base64 = load_image_base64(ICON_PATH)
@@ -360,6 +360,7 @@ elif st.session_state["screen"] == "game_selector":
     game_selector_screen()
 elif st.session_state["screen"] == "game_page":
     game_page()
+
 
 
 
