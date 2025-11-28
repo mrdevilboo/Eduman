@@ -20,8 +20,8 @@ def load_image_base64(path):
     except Exception:
         return None
 
-ICON_PATH = r"assets\icon.png"
-HOME_BG = r"home_background.png"
+ICON_PATH = r"assets/icon.png"
+HOME_BG = r"assets/home_background.png"
 
 icon_base64 = load_image_base64(ICON_PATH)
 home_bg_base64 = load_image_base64(HOME_BG)
@@ -29,8 +29,7 @@ home_bg_base64 = load_image_base64(HOME_BG)
 # PAGE CONFIG
 st.set_page_config(page_title="EduMan", layout="centered")
 
-# GEMINI CONFIG
-genai.configure(api_key="AIzaSyCcq6iDaTFmkBU7aH6duT0HYuWoM64mGug")
+genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 model = genai.GenerativeModel("gemini-2.0-flash-lite")
 
 # --------------------------------------------
@@ -361,3 +360,4 @@ elif st.session_state["screen"] == "game_selector":
     game_selector_screen()
 elif st.session_state["screen"] == "game_page":
     game_page()
+
