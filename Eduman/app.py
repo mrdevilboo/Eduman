@@ -20,8 +20,8 @@ def load_image_base64(path):
     except Exception:
         return None
 
-ICON_PATH = r"S:\Eduman\assets\icon.png"
-HOME_BG = r"S:\Eduman\assets\home_background.png"
+ICON_PATH = r"assets\icon.png"
+HOME_BG = r"home_background.png"
 
 icon_base64 = load_image_base64(ICON_PATH)
 home_bg_base64 = load_image_base64(HOME_BG)
@@ -31,7 +31,7 @@ st.set_page_config(page_title="EduMan", layout="centered")
 
 # GEMINI CONFIG
 genai.configure(api_key="AIzaSyCcq6iDaTFmkBU7aH6duT0HYuWoM64mGug")
-model = genai.GenerativeModel("gemini-2.0-flash")
+model = genai.GenerativeModel("gemini-2.0-flash-lite")
 
 # --------------------------------------------
 # Apply Background Globally
@@ -56,7 +56,7 @@ def apply_global_background():
                     margin: 6px 0 !important;
                 }}
                 .question-box {{
-                    background: rgba(0,0,0,0.0);
+                    background: rgba(0,0,0,0.0); /* No white box */
                     color: white;
                     padding: 16px;
                     font-size: 26px;
@@ -79,7 +79,6 @@ def loading_screen():
         f'<img class="em-logo" src="data:image/png;base64,{icon_base64}" />'
         if icon_base64 else "Logo Missing"
     )
-
     st.markdown(
         f"""
         <style>
@@ -139,7 +138,6 @@ def loading_screen():
         """,
         unsafe_allow_html=True,
     )
-
     time.sleep(2.2)
     st.session_state["screen"] = "home"
     st.rerun()
@@ -165,7 +163,8 @@ def home_screen():
 
     col1, col2, col3 = st.columns([4,2,4])
     with col2:
-        if st.button("Start Game"):
+        start = st.button("Start Game")
+        if start:
             st.session_state["screen"] = "game_selector"
             st.rerun()
 
@@ -199,40 +198,57 @@ def game_selector_screen():
         st.session_state["screen"] = "game_page"
         st.session_state["qno"] = 1
         st.session_state["answer_state"] = "waiting"
-        st.session_state["current_index"] = 0
-        st.session_state["questions"] = generate_question_batch(st.session_state["game_inputs"])
-        st.session_state["start_time"] = time.time()
+
+        if "current_question" in st.session_state:
+            del st.session_state["current_question"]
+
         st.rerun()
 
 # --------------------------------------------
-# SAFE JSON PARSER
+# SAFE JSON EXTRACTOR (NO REGEX RECURSION)
 # --------------------------------------------
 def safe_json_from_text(text: str):
     start = text.find("{")
     end = text.rfind("}")
+
     if start == -1 or end == -1 or end <= start:
         return None
+
+    json_str = text[start:end+1]
+
     try:
-        return json.loads(text[start:end+1])
+        return json.loads(json_str)
     except:
         return None
 
 # --------------------------------------------
-# GENERATE 20 QUESTIONS AT ONCE
+# QUESTION GENERATOR
 # --------------------------------------------
-def generate_question_batch(inputs):
-    prompt = f"""
-    Generate **20 UNIQUE MCQ questions** in JSON list format ONLY.
+def generate_question(inputs):
 
-    Format:
-    [
-      {{
-        "question": "text",
-        "options": ["A) ...","B) ...","C) ...","D) ..."],
-        "answer": "A/B/C/D"
-      }},
-      ...
-    ]
+    # Stronger randomness so Gemini NEVER repeats
+    seed = random.randint(1000000, 9999999)
+    noise = random.choice([
+        "make it funny",
+        "make it tricky",
+        "avoid previously seen patterns",
+        "use uncommon numbers",
+        "use real-life scenario",
+        "use classroom example"
+    ])
+
+    prompt = f"""
+    Generate a UNIQUE multiple-choice question. 
+    Never repeat earlier questions. Add creativity: {noise}
+    
+    SEED: {seed}
+
+    Output strictly JSON only:
+    {{
+      "question": "<text>",
+      "options": ["A) ...","B) ...","C) ...","D) ..."],
+      "answer": "A/B/C/D"
+    }}
 
     Class: {inputs['class']}
     Board: {inputs['board']}
@@ -241,20 +257,24 @@ def generate_question_batch(inputs):
     Difficulty: {inputs['difficulty']}
     """
 
-    res = model.generate_content(prompt)
+    # Add temperature for more variety
+    res = model.generate_content(
+        prompt,
+        generation_config={"temperature": 0.9}
+    )
+
     parsed = safe_json_from_text(res.text)
 
     if parsed:
         return parsed
 
-    # fallback
-    return [
-        {
-            "question": "Fallback: What is 5 × 5?",
-            "options": ["A) 20","B) 15","C) 25","D) 30"],
-            "answer": "C"
-        }
-    ] * 20
+    # Fallback (only if model fails)
+    return {
+        "question": "Fallback: What is 5 × 3?",
+        "options": ["A) 8", "B) 15", "C) 10", "D) 35"],
+        "answer": "B"
+    }
+
 
 # --------------------------------------------
 # GAME PAGE
@@ -263,43 +283,32 @@ def game_page():
     apply_global_background()
 
     inputs = st.session_state["game_inputs"]
+
     timer_map = {"Easy": 60, "Medium": 45, "Hard": 30}
     duration = timer_map[inputs["difficulty"]]
 
-    questions = st.session_state["questions"]
-    index = st.session_state["current_index"]
-    q = questions[index]
+    if "current_question" not in st.session_state:
+        st.session_state["current_question"] = generate_question(inputs)
+        st.session_state["start_time"] = time.time()
+
+    q = st.session_state["current_question"]
 
     st.markdown(
         f"<h1 style='color:white; text-align:center;'>🧠 Question {st.session_state['qno']}</h1>",
         unsafe_allow_html=True
     )
 
-    # TIMER LIVE UI
-    timer_box = st.empty()
-    bar_box = st.empty()
-
     elapsed = int(time.time() - st.session_state["start_time"])
     remaining = max(duration - elapsed, 0)
 
-    with timer_box:
-        st.markdown(
-            f"<h2 style='color:white; text-align:center;'>⏳ Time Left: {remaining} sec</h2>",
-            unsafe_allow_html=True
-        )
-
-    bar_box.progress(remaining / duration)
+    st.markdown(
+        f"<h2 style='text-align:center; color:white;'>⏳ Time Left: {remaining} sec</h2>",
+        unsafe_allow_html=True
+    )
 
     if remaining == 0 and st.session_state["answer_state"] == "waiting":
         st.session_state["answer_state"] = "timeout"
 
-    # REPAINT TIMER ONLY
-    if st.session_state["answer_state"] == "waiting":
-        time.sleep(1)
-        st.session_state["__refresh__"] = random.random()
-        st.rerun()
-
-    # SHOW QUESTION
     st.markdown(
         f"<div class='question-box'>{q['question']}</div>",
         unsafe_allow_html=True
@@ -312,9 +321,8 @@ def game_page():
             picked = choice[0]
             st.session_state["answer_state"] = "correct" if picked == q["answer"] else "wrong"
         else:
-            st.warning("Please select an option.")
+            st.warning("Please choose an option.")
 
-    # RESULT
     if st.session_state["answer_state"] == "correct":
         st.success("✔ Correct!")
     elif st.session_state["answer_state"] == "wrong":
@@ -322,20 +330,20 @@ def game_page():
     elif st.session_state["answer_state"] == "timeout":
         st.error(f"⏳ Time's up! Correct Answer: {q['answer']}")
 
-    # NEXT QUESTION
     if st.session_state["answer_state"] != "waiting":
-        col1, col2 = st.columns(2)
 
-        with col1:
+        c1, c2 = st.columns(2)
+
+        with c1:
             if st.button("Next Question"):
                 st.session_state["qno"] += 1
-                st.session_state["current_index"] += 1
+                st.session_state["current_question"] = generate_question(inputs)
                 st.session_state["answer_state"] = "waiting"
                 st.session_state["start_time"] = time.time()
                 st.rerun()
 
-        with col2:
-            if st.button("Go Home"):
+        with c2:
+            if st.button("Go To Home"):
                 st.session_state["screen"] = "home"
                 st.rerun()
 
